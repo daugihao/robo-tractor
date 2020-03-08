@@ -32,7 +32,24 @@ class Wiimote:
     
     def accel(self):
         return self.wm.state['acc']
+
+    def buttons(self):
+        raw_buttons = self.wm.state['buttons']
+        buttons = {
+                "trigger": bool(raw_buttons & 0b100),  # 4
+                "a": bool(raw_buttons & 0b1000),  # 8
+                "minus": bool(raw_buttons & 0b10000),  # 16
+                "home": bool(raw_buttons & 0b10000000),  # 128
+                "left": bool(raw_buttons & 0b100000000),  # 256
+                "right": bool(raw_buttons & 0b1000000000),  # 512
+                "down": bool(raw_buttons & 0b10000000000),  # 1024
+                "up": bool(raw_buttons & 0b100000000000),  # 2048
+                "plus": bool(raw_buttons & 0b1000000000000),  # 4096
+                }
+        return buttons
     
     def rumble(self, logical):
         self.wm.rumble = logical
-
+    
+    def led(self, number):
+        self.wm.led = number

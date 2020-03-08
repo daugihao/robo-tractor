@@ -1,4 +1,3 @@
-import os
 import RPi.GPIO as GPIO
 import time
 
@@ -6,78 +5,109 @@ from math import sqrt
 from accel import convertAcc
 
 from wii import Wiimote
-from effects import Effect
 
-PIN_MAGLOCK = 17
+PIN_PNEU1 = 12
+PIN_PNEU2 = 13
+PIN_ELEC1 = 15
+PIN_ELEC2 = 16
+PIN_KILLSW = 29
+PIN_SPARE2 = 31
+PIN_SPARE3 = 33
+PIN_SPARE4 = 35
 
-dirname = os.path.dirname(__file__)
-GPIO.setmode(GPIO.BCM)
+T_CYCLE = 0.1
+T_PNEU = 3.0
+T_START = 5.0
+
+GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
-GPIO.setup(PIN_MAGLOCK, GPIO.OUT)
-GPIO.output(PIN_MAGLOCK, GPIO.HIGH)
+GPIO.setup(PIN_PNEU1, GPIO.OUT)
+GPIO.setup(PIN_PNEU2, GPIO.OUT)
+GPIO.setup(PIN_ELEC1, GPIO.OUT)
+GPIO.setup(PIN_ELEC2, GPIO.OUT)
+GPIO.setup(PIN_KILLSW, GPIO.OUT)
+GPIO.setup(PIN_SPARE2, GPIO.OUT)
+GPIO.setup(PIN_SPARE3, GPIO.OUT)
+GPIO.setup(PIN_SPARE4, GPIO.OUT)
+GPIO.output(PIN_PNEU1, GPIO.LOW)
+GPIO.output(PIN_PNEU2, GPIO.HIGH)
+GPIO.output(PIN_ELEC1, GPIO.HIGH)
+GPIO.output(PIN_ELEC2, GPIO.HIGH)
+GPIO.output(PIN_KILLSW, GPIO.HIGH)
+GPIO.output(PIN_SPARE2, GPIO.HIGH)
+GPIO.output(PIN_SPARE3, GPIO.HIGH)
+GPIO.output(PIN_SPARE4, GPIO.HIGH)
 
 
-'''Set up Audio'''
-effect = Effect()
-effect.sound(os.path.join(dirname, "audio/drip.wav"))
 wiimote = Wiimote()
-effect.sound(os.path.join(dirname, "audio/drip.wav"))
 time.sleep(1)
 
-state = 0
+timer_accel = 0.0
+timer_start = 0.0
+killed = True
 
-'''Main loop'''
 while True:
-    g = convertAcc(wiimote.accel(),0)
-    angles = convertAcc(wiimote.accel(), 1)
-    accMag = sqrt(g[0]**2 + g[1]**2 + g[2]**2)
-    print('x: {0:.2f}'.format(angles[0]))
-    print('y: {0:.2f}'.format(angles[1]))
-    print('Mag: {0:.2f}'.format(accMag))
+    time.sleep(T_CYCLE)
+    buttons = wiimote.buttons()
 
-    if state == 0:
-        GPIO.output(PIN_MAGLOCK, GPIO.HIGH)
-        if angles[1] > 45:
-           wiimote.rumble(True)
-           if not effect.busy():
-               effect.sound(os.path.join(dirname, "audio/bubble.wav"))
-               state += 1
+    # Control braking pnuematics
+    print("trigger: " + str(buttons["trigger"]))
+    if buttons["trigger"]:
+        timer_brake = 0.0
+        timer_accel += T_CYCLE
+        if timer_accel > T_PNEU:
+            GPIO.output(PIN_PNEU1, GPIO.HIGH)
+            GPIO.output(PIN_PNEU2, GPIO.HIGH)
+        else:
+            GPIO.output(PIN_PNEU1, GPIO.HIGH)
+            GPIO.output(PIN_PNEU2, GPIO.LOW)
+    else:
+        timer_accel = 0.0
+        GPIO.output(PIN_PNEU1, GPIO.LOW)
+        GPIO.output(PIN_PNEU2, GPIO.HIGH)
     
-    if state == 1:
-        if accMag > 3:
-            wiimote.rumble(True)
-            if not effect.busy():
-                effect.sound(os.path.join(dirname, "audio/bell2.wav"))
-                state += 1
-
-    if state == 2:
-        if angles[0] > 45:
-            wiimote.rumble(True)
-            if not effect.busy():
-                effect.sound(os.path.join(dirname, "audio/bubble.wav"))
-                state += 1
+    # Control steering motor
+    print("left: " + str(buttons["left"]))
+    print("right: " + str(buttons["right"]))
+    if buttons["left"] and not buttons["right"]:
+        GPIO.output(PIN_ELEC1, GPIO.LOW)
+        GPIO.output(PIN_ELEC2, GPIO.HIGH)
+    elif buttons["right"] and not buttons["left"]:
+        GPIO.output(PIN_ELEC1, GPIO.HIGH)
+        GPIO.output(PIN_ELEC2, GPIO.LOW)
+    else:
+        GPIO.output(PIN_ELEC1, GPIO.HIGH)
+        GPIO.output(PIN_ELEC2, GPIO.HIGH)
     
-    if state == 3:
-        if accMag > 3:
-            wiimote.rumble(True)
-            if not effect.busy():
-                effect.sound(os.path.join(dirname, "audio/bell2.wav"))
-                state += 1
+    # Control kill switch
+    if killed:
+        GPIO.output(PIN_KILLSW, GPIO.HIGH)
+        wiimote.led(9)
+    else:
+        GPIO.output(PIN_KILLSW, GPIO.LOW)
+        wiimote.led(15)
 
-    if state == 4:
-        if angles[1] < -80:
-            wiimote.rumble(True)
-            if not effect.busy():
-                effect.sound(os.path.join(dirname, "audio/bubbles.wav"))
-                state = 5
-            
-    if state == 5:
-        GPIO.output(PIN_MAGLOCK, GPIO.LOW)
-        time.sleep(1)
-        wiimote.rumble(False)
-        time.sleep(30)
-        state = 0
-
-    time.sleep(.2)
-    wiimote.rumble(False)
-
+    if buttons["a"]:
+        if killed:
+            timer_start += T_CYCLE
+            if timer_start > T_START:
+                killed = False
+        else:
+            timer_start = 0
+            killed = True
+    else:
+        timer_start = 0
+    
+    # Control spares
+    if buttons["minus"]:
+        GPIO.output(PIN_SPARE2, GPIO.LOW)
+    else:
+        GPIO.output(PIN_SPARE2, GPIO.HIGH)
+    if buttons["home"]:
+        GPIO.output(PIN_SPARE3, GPIO.LOW)
+    else:
+        GPIO.output(PIN_SPARE3, GPIO.HIGH)
+    if buttons["plus"]:
+        GPIO.output(PIN_SPARE4, GPIO.LOW)
+    else:
+        GPIO.output(PIN_SPARE4, GPIO.HIGH)
